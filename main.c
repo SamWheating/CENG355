@@ -72,13 +72,17 @@ main(int argc, char* argv[])
 void myGPIOA_Init()
 {
 	/* Enable clock for GPIOA peripheral */
-	// Relevant register: RCC->AHBENR
-
+	// Relevant register: RCC->AHBENR   (manual pg 120)
+	RCC->AHBENR |= 0x20000;
+	
 	/* Configure PA1 as input */
-	// Relevant register: GPIOA->MODER
+	// Relevant register: GPIOA->MODER (manual 159)
+	GPIOA->MODER |= 0x28000000;
 
 	/* Ensure no pull-up/pull-down for PA1 */
-	// Relevant register: GPIOA->PUPDR
+	// Relevant register: GPIOA->PUPDR	(manual 161)
+	GPIOA->PUPDR = 0x24000000;   // reset
+
 }
 
 
@@ -86,10 +90,13 @@ void myTIM2_Init()
 {
 	/* Enable clock for TIM2 peripheral */
 	// Relevant register: RCC->APB1ENR
+	RCC->APB1ENR |= 0x1;
+
 
 	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
 	 * enable update events, interrupt on overflow only */
 	// Relevant register: TIM2->CR1
+	TIM2->CR1 |= 0x8;
 
 	/* Set clock prescaler value */
 	TIM2->PSC = myTIM2_PRESCALER;
@@ -98,15 +105,19 @@ void myTIM2_Init()
 
 	/* Update timer registers */
 	// Relevant register: TIM2->EGR
+	TIM2->EGR = 0x1;
 
 	/* Assign TIM2 interrupt priority = 0 in NVIC */
 	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
-
+	NVIC_SetPriority(TIM2_IRQn, 0);
+	
 	/* Enable TIM2 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
+	NVIC_EnableIRQ(TIM2_IRQn);
 
 	/* Enable update interrupt generation */
 	// Relevant register: TIM2->DIER
+	TIM2->DIER |= 0x1;
 }
 
 
@@ -114,18 +125,23 @@ void myEXTI_Init()
 {
 	/* Map EXTI1 line to PA1 */
 	// Relevant register: SYSCFG->EXTICR[0]
+	SYSCFG->EXTICR[0] &= 0x0000FF0F;
 
 	/* EXTI1 line interrupts: set rising-edge trigger */
 	// Relevant register: EXTI->RTSR
+	EXTI->RTSR |= EXTI_RTSR_TR1;
 
 	/* Unmask interrupts from EXTI1 line */
 	// Relevant register: EXTI->IMR
+	EXTI->IMR |= EXTI_IMR_MR1;
 
 	/* Assign EXTI1 interrupt priority = 0 in NVIC */
 	// Relevant register: NVIC->IP[1], or use NVIC_SetPriority
+	NVIC_SetPriority(EXTI0_1_IRQn, 0);
 
 	/* Enable EXTI1 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
+	NVIC_EnableIRQ(EXTI0_1_IRQn);
 }
 
 
@@ -139,9 +155,11 @@ void TIM2_IRQHandler()
 
 		/* Clear update interrupt flag */
 		// Relevant register: TIM2->SR
+		TIM2->SR ^= TIM_SR_UIF;
 
 		/* Restart stopped timer */
 		// Relevant register: TIM2->CR1
+		TIM2->CR1 |= 0x01;
 	}
 }
 
@@ -150,6 +168,10 @@ void TIM2_IRQHandler()
 void EXTI0_1_IRQHandler()
 {
 	// Your local variables...
+
+	unsigned int firstedge = 0;
+	unsigned int period_ms = 0;
+	unsigned int frequency = 0;
 
 	/* Check if EXTI1 interrupt pending flag is indeed set */
 	if ((EXTI->PR & EXTI_PR_PR1) != 0)
@@ -170,6 +192,25 @@ void EXTI0_1_IRQHandler()
 		//
 		// 2. Clear EXTI1 interrupt pending flag (EXTI->PR).
 		//
+
+		if(firstedge == 0){
+			firstedge = 1;
+			TIM2->CNT = 0x00000000;
+			TIM2->CR1 |= 0x01
+
+		}
+
+		else(){
+			TIM2->CR1 ^= 0x01
+			firstedge = 0;
+			duration = TIM2->CNT;
+			period_ms = duration / 100000;
+			int frequency = 100000000 / duration;
+			trace_printf("frequency: %i Hz, period: %i ms", (frequency, period_ms))
+		}
+
+		EXTI->PR ^= 0x20; // reset flag.
+
 	}
 }
 
