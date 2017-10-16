@@ -45,6 +45,7 @@
 void myGPIOA_Init(void);
 void myTIM2_Init(void);
 void myEXTI_Init(void);
+uint16_t firstedge = 0;
 
 // Your global variables...
 
@@ -62,6 +63,7 @@ main(int argc, char* argv[])
 	while (1)
 	{
 		// Nothing is going on here...
+		//trace_printf("main loop\n");
 	}
 
 	return 0;
@@ -73,15 +75,17 @@ void myGPIOA_Init()
 {
 	/* Enable clock for GPIOA peripheral */
 	// Relevant register: RCC->AHBENR   (manual pg 120)
-	RCC->AHBENR |= 0x20000;
-	
+	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+
 	/* Configure PA1 as input */
 	// Relevant register: GPIOA->MODER (manual 159)
-	GPIOA->MODER |= 0x28000000;
+	GPIOA->MODER &= ~(GPIO_MODER_MODER1);
 
 	/* Ensure no pull-up/pull-down for PA1 */
 	// Relevant register: GPIOA->PUPDR	(manual 161)
-	GPIOA->PUPDR = 0x24000000;   // reset
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPDR1);   // reset
+
+	trace_printf("GPIO initialized\n");
 
 }
 
@@ -90,13 +94,13 @@ void myTIM2_Init()
 {
 	/* Enable clock for TIM2 peripheral */
 	// Relevant register: RCC->APB1ENR
-	RCC->APB1ENR |= 0x1;
+	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
 
 
 	/* Configure TIM2: buffer auto-reload, count up, stop on overflow,
 	 * enable update events, interrupt on overflow only */
 	// Relevant register: TIM2->CR1
-	TIM2->CR1 |= 0x8;
+	TIM2->CR1 = ((uint16_t)0x008C);
 
 	/* Set clock prescaler value */
 	TIM2->PSC = myTIM2_PRESCALER;
@@ -105,19 +109,21 @@ void myTIM2_Init()
 
 	/* Update timer registers */
 	// Relevant register: TIM2->EGR
-	TIM2->EGR = 0x1;
+	TIM2->EGR = ((uint16_t)0x0001);
 
 	/* Assign TIM2 interrupt priority = 0 in NVIC */
 	// Relevant register: NVIC->IP[3], or use NVIC_SetPriority
 	NVIC_SetPriority(TIM2_IRQn, 0);
-	
+
 	/* Enable TIM2 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 	NVIC_EnableIRQ(TIM2_IRQn);
 
 	/* Enable update interrupt generation */
 	// Relevant register: TIM2->DIER
-	TIM2->DIER |= 0x1;
+	TIM2->DIER |= TIM_DIER_UIE;
+
+	trace_printf("TIM2 initialized\n");
 }
 
 
@@ -142,6 +148,8 @@ void myEXTI_Init()
 	/* Enable EXTI1 interrupts in NVIC */
 	// Relevant register: NVIC->ISER[0], or use NVIC_EnableIRQ
 	NVIC_EnableIRQ(EXTI0_1_IRQn);
+
+	trace_printf("EXTI initialized\n");
 }
 
 
@@ -169,9 +177,8 @@ void EXTI0_1_IRQHandler()
 {
 	// Your local variables...
 
-	unsigned int firstedge = 0;
-	unsigned int period_ms = 0;
-	unsigned int frequency = 0;
+	uint32_t frequency = 0;
+	uint32_t duration = 0;
 
 	/* Check if EXTI1 interrupt pending flag is indeed set */
 	if ((EXTI->PR & EXTI_PR_PR1) != 0)
@@ -186,7 +193,7 @@ void EXTI0_1_IRQHandler()
 		//	- Calculate signal period and frequency.
 		//	- Print calculated values to the console.
 		//	  NOTE: Function trace_printf does not work
-		//	  with floating-point numbers: you must use 
+		//	  with floating-point numbers: you must use
 		//	  "unsigned int" type to print your signal
 		//	  period and frequency.
 		//
@@ -196,17 +203,33 @@ void EXTI0_1_IRQHandler()
 		if(firstedge == 0){
 			firstedge = 1;
 			TIM2->CNT = 0x00000000;
-			TIM2->CR1 |= 0x01
+			TIM2->CR1 |= TIM_CR1_CEN;
 
 		}
 
-		else(){
-			TIM2->CR1 ^= 0x01
-			firstedge = 0;
+		else{
 			duration = TIM2->CNT;
-			period_ms = duration / 100000;
-			int frequency = 100000000 / duration;
-			trace_printf("frequency: %i Hz, period: %i ms", (frequency, period_ms))
+			TIM2->CR1 = 0x0000;
+			firstedge = 0;
+			frequency = (double)SystemCoreClock / (double)duration;
+
+			if(frequency > 100000){
+				frequency /= 1000;
+				trace_printf("frequency: %i kHz\n", frequency);
+			}
+			else{
+				trace_printf("frequency: %i Hz\n", frequency);
+			}
+			if(duration > 4800000){
+				duration /= 48000;
+				trace_printf("period: %i ms\n", duration);
+			}
+			else{
+				duration /= 48;
+				trace_printf("period: %i us\n", duration);
+			}
+
+
 		}
 
 		EXTI->PR ^= 0x20; // reset flag.
@@ -218,3 +241,6 @@ void EXTI0_1_IRQHandler()
 #pragma GCC diagnostic pop
 
 // ----------------------------------------------------------------------------
+
+
+
